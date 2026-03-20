@@ -2,3 +2,5 @@ gemma-env/
 venv/
 .env/
 __pycache__/
+newsletter_agent.db
+output/
