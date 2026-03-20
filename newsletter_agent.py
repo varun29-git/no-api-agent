@@ -23,8 +23,10 @@ MAX_ARTICLE_CHARS = 8000
 REQUEST_TIMEOUT_SECONDS = 5
 DEFAULT_WRITING_STYLE = "Sharp, analytical, and premium. Write like a high-end newsletter editor, not a corporate content bot."
 SLICE_MODEL_PATHS = {
+    0.125: os.environ.get("NEWSLETTER_AGENT_MODEL_SLICE_12_5", DEFAULT_MODEL_PATH),
     0.25: os.environ.get("NEWSLETTER_AGENT_MODEL_SLICE_25", DEFAULT_MODEL_PATH),
     0.50: os.environ.get("NEWSLETTER_AGENT_MODEL_SLICE_50", DEFAULT_MODEL_PATH),
+    0.75: os.environ.get("NEWSLETTER_AGENT_MODEL_SLICE_75", DEFAULT_MODEL_PATH),
     1.00: os.environ.get("NEWSLETTER_AGENT_MODEL_SLICE_100", DEFAULT_MODEL_PATH),
 }
 EXPLANATION_STYLE_GUIDANCE = {
@@ -140,21 +142,7 @@ def initialize_model_runtime(device_class_override=None):
     system_info = detect_system_info()
     runtime_profile = choose_model_profile(system_info, DEVICE_CLASS_OVERRIDE)
 
-    print("Detected hardware profile:")
-    print(
-        f"  system={system_info['system_name']}, "
-        f"machine={system_info['machine']}, "
-        f"chip={system_info['chip'] or 'unknown'}, "
-        f"device_class={runtime_profile['device_class']}, "
-        f"total_ram_gb={system_info['memory_total_gb']:.1f}, "
-        f"available_ram_gb={system_info['memory_available_gb']:.1f}"
-    )
-    print(
-        f"Selected runtime: {runtime_profile['runtime_backend']}, "
-        f"profile={runtime_profile['profile_name']}, "
-        f"slice={runtime_profile['slice_label']}, "
-        f"model={runtime_profile['model_path']}"
-    )
+    print(f"Using model slice: {runtime_profile['slice_label']}")
 
     if runtime_profile["runtime_backend"] != "mlx":
         raise SystemExit(
@@ -471,7 +459,7 @@ def choose_model_profile(system_info, device_class_override=None):
 
     if slice_ratio <= 0.25:
         profile_name = "constrained"
-    elif slice_ratio >= 1.0:
+    elif slice_ratio >= 0.75:
         profile_name = "expanded"
     else:
         profile_name = "balanced"
@@ -481,7 +469,7 @@ def choose_model_profile(system_info, device_class_override=None):
     profile["device_class"] = device_class
     profile["runtime_backend"] = runtime_backend
     profile["slice_ratio"] = slice_ratio
-    profile["slice_label"] = f"{int(slice_ratio * 100)}%"
+    profile["slice_label"] = format_slice_label(slice_ratio)
     profile["model_path"] = choose_model_path_for_slice(slice_ratio, profile["model_path"])
     return profile
 
@@ -505,22 +493,17 @@ def detect_device_class(system_info, device_class_override=None):
 
 
 def choose_slice_ratio(device_class, system_info):
-    total_gb = system_info["memory_total_gb"]
-    available_gb = system_info["memory_available_gb"]
-
     if device_class == "midrange_phone":
-        return 0.25
+        return 0.125
     if device_class == "flagship_phone":
-        return 0.50
+        return 0.25
     if device_class == "midrange_laptop":
         return 0.50
+    if device_class == "macbook":
+        return 0.75
     if device_class == "gaming_laptop":
         return 1.00
 
-    if total_gb >= 24 and available_gb >= 8:
-        return 1.00
-    if total_gb >= 16 and available_gb >= 4:
-        return 0.50
     return 0.25
 
 
@@ -537,8 +520,15 @@ def choose_runtime_backend(device_class, system_info):
 
 
 def choose_model_path_for_slice(slice_ratio, default_path):
-    rounded_ratio = round(slice_ratio, 2)
+    rounded_ratio = round(slice_ratio, 3)
     return SLICE_MODEL_PATHS.get(rounded_ratio, default_path)
+
+
+def format_slice_label(slice_ratio):
+    percentage = slice_ratio * 100
+    if percentage.is_integer():
+        return f"{int(percentage)}%"
+    return f"{percentage:.1f}%"
 
 
 def run_newsletter_pipeline(
