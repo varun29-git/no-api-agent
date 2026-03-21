@@ -619,22 +619,32 @@ def run_newsletter_pipeline(
             print(f"  Saved source: {result['title']}")
 
     if not collected_sources:
-        raise RuntimeError(
-            "No usable sources were collected from the web search step. "
-            "The search provider may be blocking requests or the network may still be failing."
+        print(
+            "\nNo usable sources were collected from the web search step. "
+            "Falling back to a source-free draft."
         )
-
-    newsletter_markdown = compose_newsletter(
-        brief,
-        plan,
-        collected_sources,
-        days,
-        market_snapshot,
-        depth,
-        explanation_style,
-        custom_style_instructions,
-        settings["newsletter_tokens"],
-    )
+        newsletter_markdown = compose_fallback_newsletter(
+            brief,
+            plan,
+            days,
+            market_snapshot,
+            depth,
+            explanation_style,
+            custom_style_instructions,
+            settings["newsletter_tokens"],
+        )
+    else:
+        newsletter_markdown = compose_newsletter(
+            brief,
+            plan,
+            collected_sources,
+            days,
+            market_snapshot,
+            depth,
+            explanation_style,
+            custom_style_instructions,
+            settings["newsletter_tokens"],
+        )
     output_path = write_newsletter_file(output_dir, plan["title"], newsletter_markdown)
     update_run_output_path(run_id, output_path)
 
@@ -1125,6 +1135,78 @@ Requirements:
 - end with a short closing note
 - include a final Sources section listing [id]: title - url
 - if structured market data is present, add: [M1]: CoinGecko Markets API - https://www.coingecko.com/
+- return markdown only
+<end_of_turn>
+<start_of_turn>model
+"""
+
+    return generate_text_from_prompt(prompt, newsletter_tokens).strip()
+
+
+def compose_fallback_newsletter(
+    brief,
+    plan,
+    days,
+    market_snapshot,
+    depth,
+    explanation_style,
+    custom_style_instructions,
+    newsletter_tokens,
+):
+    explanation_guidance = build_explanation_guidance(
+        explanation_style,
+        custom_style_instructions,
+    )
+    prompt = f"""<start_of_turn>user
+You are the writing brain for a newsletter agent.
+
+Write a markdown newsletter draft even though no web sources were successfully collected.
+
+Newsletter brief:
+"{brief}"
+
+Title:
+"{plan['title']}"
+
+Audience:
+"{plan['audience']}"
+
+Tone:
+"{plan['tone']}"
+
+House style:
+"{DEFAULT_WRITING_STYLE}"
+
+Explanation style:
+{explanation_style}
+
+Explanation guidance:
+"{explanation_guidance}"
+
+Coverage window:
+Last {days} days
+
+Research depth:
+{depth}
+
+Planned sections:
+{json.dumps(plan['sections'])}
+
+Structured market data:
+{json.dumps(market_snapshot, ensure_ascii=True)}
+
+Requirements:
+- begin with a bold note that live web source collection failed
+- state clearly that the draft is based on the brief, plan, and any structured market data only
+- do not invent recent events, dates, quotes, numbers, or citations from external reporting
+- if structured market data is present, you may reference it and cite it as [M1]
+- if there is not enough verified information, explicitly say what is unknown
+- organize the body around the planned sections
+- keep the writing useful, analytical, and honest about uncertainty
+- end with a short next-steps note
+- include a final Sources section
+- if structured market data is present, list only: [M1]: CoinGecko Markets API - https://www.coingecko.com/
+- if no structured market data is present, say in Sources that no external sources were successfully collected
 - return markdown only
 <end_of_turn>
 <start_of_turn>model
